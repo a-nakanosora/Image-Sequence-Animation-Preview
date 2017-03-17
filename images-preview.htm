@@ -193,7 +193,7 @@ function initImageSequence(e){
         return
 
     const numberOfImage = path=>{
-        const m = path.match(/(\d+)\.(png|jpe?g|gif|bmp)$/)
+        const m = path.match(/(\d+)\.[^\.]+$/)
         return m ? Number(m[1]) : -1
     }
     e.sort((a,b)=> numberOfImage(a.name)-numberOfImage(b.name))
