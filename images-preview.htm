@@ -1,0 +1,271 @@
+<html>
+<head>
+<title>Image Sequence Animation Preview</title>
+<style>
+.select-files {
+    margin-bottom: 20px;
+}
+.playback {
+    margin-top: 10px;
+}
+.oneline-text {
+    width:40px;
+}
+</style>
+</head>
+
+<body>
+<div>
+    <input type="file" class="select-files" name="files[]" multiple />
+    <div>
+    <button onclick="fpsDec()">-</button>
+    fps:<input type="text" class="fps oneline-text" rows="1">
+    <button onclick="fpsInc()">+</button>
+    </div>
+    <div>
+    <button onclick="zoomOut()">-</button>
+    zoom:<input type="text" class="zoom oneline-text" rows="1" disabled="true">
+    <button onclick="zoomIn()">+</button>
+    <button onclick="zoomReset()">*</button>
+    </div>
+    <div class="playback">
+        <button class="exec-start" onclick="startLoop()">start</button>
+        <button class="exec-stop"  onclick="stopLoop()">stop</button>
+        frame:<input type="text" class="playback-frame oneline-text" rows="1">
+        (start frame: <span class="start-frame"></span>)
+    </div>
+    <div class="status"></div>
+</div>
+<hr>
+<canvas class="preview" width="1" height="1"></canvas>
+
+
+<script>
+function main(){
+    elem.fps = document.querySelector('.fps')
+    elem.zoom = document.querySelector('.zoom')
+    elem.frame = document.querySelector('.playback-frame')
+    elem.canvas = document.querySelector('.preview')
+    elem.status = document.querySelector('.status')
+    elem.startFrame = document.querySelector('.start-frame')
+    for(const n in elem)
+        console.assert(!!elem[n])
+
+    elem.fps.value = state.fps.toFixed(1)
+    elem.fps.addEventListener('input', e=>{
+        if(!e.isTrusted)
+            return
+        fpsChange(e.target.value)
+    })
+    elem.zoom.value = state.zoom.toFixed(1)
+    elem.startFrame.innerText = '0'
+    elem.frame.value = '0'
+    elem.frame.addEventListener('input', e=>{
+        if(!e.isTrusted)
+            return
+        frameChange(e.target.value)
+    })
+
+    const elemFileSelector = document.querySelector('.select-files')
+    elemFileSelector.addEventListener('change', fileChange)
+}
+
+const requestAnimationFrame = window.requestAnimationFrame
+
+const elem = {
+    fps: null,
+    zoom: null,
+    frame: null,
+    canvas: null,
+    status: null,
+}
+
+const state = {
+    fps: 24,
+    idxPrev: -1,
+    imgs: [],
+    animframeLoop: null,
+    zoom: 1.0,
+    startFrame: 0,
+    currentFrame: 0,
+    resampleTimestamp: true,
+}
+
+
+function status(text){
+    elem.status.innerText = text
+}
+
+function setImmediate(f){setTimeout(f,1)}
+
+function fileChange(e){
+    stopLoop()
+
+    status('loading...')
+    setImmediate(_=>{
+        const prs = []
+        for(const f of e.target.files){
+            if(!f.type.match(/image./))
+                continue
+
+            prs.push(new Promise((ok,ng)=>{
+                const reader = new FileReader()
+                reader.onload = _=>{
+                    const img = new Image()
+                    img.src = reader.result
+                    img.onload = _=>{
+                        ok({name:f.name, img})
+                    }
+                }
+                reader.readAsDataURL(f)
+            }))
+        }
+
+        Promise.all(prs).then(e=>{
+            status('')
+            initImageSequence(e)
+        })
+    })
+}
+
+function fpsChange(v){
+    if(v && !isNaN(v))
+        state.fps = Number(v)
+    elem.fps.value = String(v).trim().replace(/\D+/g, '')
+    resetFrame()
+}
+
+function frameChange(v){
+    if(v && !isNaN(v))
+        setStartFrame( Number(v) )
+    elem.frame.value = String(v).trim().replace(/\D+/g, '')
+    resetFrame()
+}
+
+function fpsDec(){
+    state.fps /= Math.sqrt(2)
+    elem.fps.value = state.fps.toFixed(1)
+    resetFrame()
+}
+function fpsInc(){
+    state.fps *= Math.sqrt(2)
+    elem.fps.value = state.fps.toFixed(1)
+    resetFrame()
+}
+function zoomOut(){
+    state.zoom /= Math.sqrt(2)
+    _setZoom()
+}
+function zoomIn(){
+    state.zoom *= Math.sqrt(2)
+    _setZoom()
+}
+function zoomReset(){
+    state.zoom = 1.0
+    _setZoom()
+}
+function _setZoom(){
+    Object.assign(elem.canvas.style, {
+        transform: `scale(${state.zoom})`,
+        'transform-origin': 'left top 0px',
+    })
+    elem.zoom.value = state.zoom.toFixed(1)
+}
+
+function resetFrame(){
+    state.idxPrev = -1
+    state.resampleTimestamp = true
+}
+function setStartFrame(i){
+    state.startFrame = i
+    elem.startFrame.innerText = i
+}
+function setCurrentFrame(i){
+    state.currentFrame = i
+    elem.frame.value = i
+}
+
+function initImageSequence(e){
+    console.assert(e instanceof Array)
+    console.assert(e.every(obj=>obj.name&&obj.img))
+
+    if(e.length === 0)
+        return
+
+    const numberOfImage = path=>{
+        const m = path.match(/(\d+)\.(png|jpe?g|gif|bmp)$/)
+        return m ? Number(m[1]) : -1
+    }
+    e.sort((a,b)=> numberOfImage(a.name)-numberOfImage(b.name))
+    state.imgs = e.map(obj=>obj.img)
+    const im = state.imgs[0]
+    state.canvasSize = {width:im.naturalWidth, height: im.naturalHeight}
+    setStartFrame(0)
+    setCurrentFrame(0)
+    startLoop()
+}
+
+function stopLoop(){
+    if(state.animframeLoop)
+        state.animframeLoop.stop()
+    state.animframeLoop = null
+    elem.frame.disabled = false
+}
+
+function startLoop(){
+    stopLoop()
+    resetFrame()
+    elem.frame.disabled = true
+    const cnv = elem.canvas
+    cnv.width = state.canvasSize.width
+    cnv.height = state.canvasSize.height
+    const ctx = cnv.getContext('2d')
+    state.animframeLoop = new AnimationFrameLoop()
+    let t0 = -1
+    let baseFrame = state.startFrame
+    state.animframeLoop.start(timestamp=>{
+        if(state.resampleTimestamp) {
+            baseFrame = t0<0 ? state.startFrame : state.currentFrame
+            t0 = timestamp
+            state.resampleTimestamp = false
+        }
+        const interval = 1000/Math.round(state.fps)
+        const idx = (((timestamp - t0)/interval)<<0) + baseFrame
+        if(idx > state.idxPrev) {
+            const i = idx % state.imgs.length
+            const im = state.imgs[i]
+            ctx.drawImage(im, 0, 0)
+            setCurrentFrame(i)
+
+            state.idxPrev = idx
+        }
+    })
+}
+
+class AnimationFrameLoop {
+    constructor(){
+        this.running = false
+    }
+    start(f){
+        if(this.running)
+            return
+        this.running = true
+
+        const loop = timestamp=>{
+            if(!this.running)
+                return
+            f(timestamp)
+            requestAnimationFrame(loop)
+        }
+        requestAnimationFrame(loop)
+    }
+    stop(){
+        this.running = false
+    }
+}
+
+main()
+</script>
+
+</body>
+</html>
