@@ -236,6 +236,7 @@ function startLoop(){
         if(idx > state.idxPrev) {
             const i = idx % state.imgs.length
             const im = state.imgs[i]
+            ctx.clearRect(0, 0, cnv.width, cnv.height)
             ctx.drawImage(im, 0, 0)
             setCurrentFrame(i)
 
