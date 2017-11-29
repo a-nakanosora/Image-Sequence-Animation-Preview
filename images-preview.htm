@@ -1,12 +1,13 @@
 <html>
 <head>
 <title>Image Sequence Animation Preview</title>
+<!-- v0.4 -->
 <style>
-.select-files {
-    margin-bottom: 20px;
+.row {
+    margin: 10px 0px;
 }
-.playback {
-    margin-top: 10px;
+.row2 {
+    margin: 2px 0px;
 }
 .oneline-text {
     width:40px;
@@ -16,23 +17,40 @@
 
 <body>
 <div>
-    <input type="file" class="select-files" name="files[]" multiple />
-    <div>
-    <button onclick="fpsDec()">-</button>
-    fps:<input type="text" class="fps oneline-text" rows="1">
-    <button onclick="fpsInc()">+</button>
+    <div class="row">
+        <input tyoe="file" class="drop" placeholder="drop directory here" style="width:25ex; padding:5px;">
+        or select files:
+        <input type="file" class="select-files" name="files[]" multiple />
     </div>
-    <div>
-    <button onclick="zoomOut()">-</button>
-    zoom:<input type="text" class="zoom oneline-text" rows="1" disabled="true">
-    <button onclick="zoomIn()">+</button>
-    <button onclick="zoomReset()">*</button>
+
+    <div class="row">
+        screen size: <span class="size">0x0</span>
     </div>
-    <div class="playback">
+
+    <div class="row">
+        <div class="row2">
+            <button onclick="fpsDec()">-</button>
+            fps:<input type="text" class="fps oneline-text" rows="1">
+            <button onclick="fpsInc()">+</button>
+        </div>
+        <div class="row2">
+            <button onclick="zoomOut()">-</button>
+            zoom:<input type="text" class="zoom oneline-text" rows="1" disabled="true">
+            <button onclick="zoomIn()">+</button>
+            <button onclick="zoomReset()">*</button>
+        </div>
+    </div>
+    <div class="playback row">
         <button class="exec-start" onclick="startLoop()">start</button>
         <button class="exec-stop"  onclick="stopLoop()">stop</button>
         frame:<input type="text" class="playback-frame oneline-text" rows="1">
+        / <span class="frame-length">0</span>
         (start frame: <span class="start-frame"></span>)
+
+        <div class="row2">
+            <button onclick="prevFrame()"> &lt; </button>
+            <button onclick="nextFrame()"> &gt; </button>
+        </div>
     </div>
     <div class="status"></div>
 </div>
@@ -42,15 +60,18 @@
 
 <script>
 function main(){
+    elem.size = document.querySelector('.size')
     elem.fps = document.querySelector('.fps')
     elem.zoom = document.querySelector('.zoom')
     elem.frame = document.querySelector('.playback-frame')
+    elem.frameLength = document.querySelector('.frame-length')
     elem.canvas = document.querySelector('.preview')
     elem.status = document.querySelector('.status')
     elem.startFrame = document.querySelector('.start-frame')
     for(const n in elem)
         console.assert(!!elem[n])
 
+    ///
     elem.fps.value = state.fps.toFixed(1)
     elem.fps.addEventListener('input', e=>{
         if(!e.isTrusted)
@@ -68,21 +89,42 @@ function main(){
 
     const elemFileSelector = document.querySelector('.select-files')
     elemFileSelector.addEventListener('change', fileChange)
+
+    const dropArea = document.querySelector('.drop')
+    dropArea.addEventListener('drop', ev=>{
+        ev.preventDefault()
+
+        const items = ev.dataTransfer.items
+        for (const itemi of items) {
+            const item = itemi.webkitGetAsEntry()
+            if (item && item.isDirectory) {
+                dropArea.placeholder = item.name
+                dropArea.style.width = `${Math.max(item.name.length + 5, 25)}ex`
+
+                const prs = []
+                const reader = item.createReader()
+                reader.readEntries(entries=>{
+                    for (const et of entries)
+                        if(et.isFile)
+                            prs.push(new Promise((ok,ng)=> et.file(ok, ng)))
+
+                    Promise.all(prs).then(e=>{
+                        const o = {target: {files: e}}
+                        fileChange(o)
+                    })
+                }, err=>console.warn('err',err))
+                return
+            }
+        }
+    })
 }
 
 const requestAnimationFrame = window.requestAnimationFrame
 
-const elem = {
-    fps: null,
-    zoom: null,
-    frame: null,
-    canvas: null,
-    status: null,
-}
+const elem = {}
 
 const state = {
     fps: 24,
-    idxPrev: -1,
     imgs: [],
     animframeLoop: null,
     zoom: 1.0,
@@ -92,8 +134,10 @@ const state = {
 }
 
 
-function status(text){
-    elem.status.innerText = text
+const status = {
+    label(text){ elem.status.textContent = text },
+    size(width, height){ elem.size.textContent = `${width}x${height}` },
+    frameLength(l){ elem.frameLength.textContent = l }
 }
 
 function setImmediate(f){setTimeout(f,1)}
@@ -101,7 +145,7 @@ function setImmediate(f){setTimeout(f,1)}
 function fileChange(e){
     stopLoop()
     revokeImgs()
-    status('loading...')
+    status.label('loading...')
 
     setImmediate(_=>{
         const prs = []
@@ -119,7 +163,7 @@ function fileChange(e){
         }
 
         Promise.all(prs).then(e=>{
-            status('')
+            status.label('')
             initImageSequence(e)
         })
     })
@@ -174,16 +218,26 @@ function _setZoom(){
     elem.zoom.value = state.zoom.toFixed(1)
 }
 
+function prevFrame(){
+    stopLoop()
+    updateFrame(getCurrentFrame()-1)
+}
+function nextFrame(){
+    stopLoop()
+    updateFrame(getCurrentFrame()+1)
+}
 function resetFrame(){
-    state.idxPrev = -1
     state.resampleTimestamp = true
 }
 function setStartFrame(i){
     state.startFrame = i
     elem.startFrame.innerText = i
 }
+function getCurrentFrame(){
+    return state._currentFrame
+}
 function setCurrentFrame(i){
-    state.currentFrame = i
+    state._currentFrame = i
     elem.frame.value = i
 }
 
@@ -202,9 +256,27 @@ function initImageSequence(e){
     state.imgs = e.map(obj=>obj.img)
     const im = state.imgs[0]
     state.canvasSize = {width:im.naturalWidth, height: im.naturalHeight}
+    status.size(state.canvasSize.width, state.canvasSize.height)
+    status.frameLength(state.imgs.length)
     setStartFrame(0)
     setCurrentFrame(0)
     startLoop()
+}
+
+function fixedFrameIndex(idx){
+    const l = state.imgs.length
+    return (idx+l) % l
+}
+function renderImage(img, canvas){
+    const ctx = canvas.getContext('2d')
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    ctx.drawImage(img, 0, 0)
+}
+function updateFrame(frame){
+    frame = fixedFrameIndex(frame)
+    const cnv = elem.canvas
+    renderImage(state.imgs[frame], cnv)
+    setCurrentFrame(frame)
 }
 
 function stopLoop(){
@@ -226,22 +298,16 @@ function startLoop(){
     let t0 = -1
     let baseFrame = state.startFrame
     state.animframeLoop.start(timestamp=>{
+        const cf = getCurrentFrame()
         if(state.resampleTimestamp) {
-            baseFrame = t0<0 ? state.startFrame : state.currentFrame
+            baseFrame = t0<0 ? state.startFrame : cf
             t0 = timestamp
             state.resampleTimestamp = false
         }
         const interval = 1000/Math.round(state.fps)
-        const idx = (((timestamp - t0)/interval)<<0) + baseFrame
-        if(idx > state.idxPrev) {
-            const i = idx % state.imgs.length
-            const im = state.imgs[i]
-            ctx.clearRect(0, 0, cnv.width, cnv.height)
-            ctx.drawImage(im, 0, 0)
-            setCurrentFrame(i)
-
-            state.idxPrev = idx
-        }
+        const idx = fixedFrameIndex( (((timestamp - t0)/interval)<<0) + baseFrame )
+        if(idx !== cf)
+            updateFrame(idx)
     })
 }
 
