@@ -1,7 +1,7 @@
 <html>
 <head>
 <title>Image Sequence Animation Preview</title>
-<!-- v0.4 -->
+<!-- v0.5 -->
 <style>
 body {
 	background: #ffffff;
@@ -106,16 +106,22 @@ function main(){
 
                 const prs = []
                 const reader = item.createReader()
-                reader.readEntries(entries=>{
-                    for (const et of entries)
-                        if(et.isFile)
-                            prs.push(new Promise((ok,ng)=> et.file(ok, ng)))
-
-                    Promise.all(prs).then(e=>{
-                        const o = {target: {files: e}}
-                        fileChange(o)
-                    })
-                }, err=>console.warn('err',err))
+                function rd(){
+                    reader.readEntries(entries=>{
+                        if(entries.length) {
+                            for (const et of entries)
+                                if(et.isFile)
+                                    prs.push(new Promise((ok,ng)=> et.file(ok, ng)))
+                            rd()
+                        } else {
+                            Promise.all(prs).then(e=>{
+                                const o = {target: {files: e}}
+                                fileChange(o)
+                            })
+                        }
+                    }, err=>console.warn('err',err))
+                }
+                rd()
                 return
             }
         }
