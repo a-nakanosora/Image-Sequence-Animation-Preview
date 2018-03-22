@@ -38,3 +38,11 @@ v0.4から連番画像を含むディレクトリのドラッグ＆ドロップ�
 :exclamation: 今のところかなりメモリ効率が悪いため、巨大な画像を数百枚開くとメモリ使用量をかなり圧迫する可能性があります。
 
 
+---
+
+# Image Sequence Animation Preview (Remote)
+
+リモートに配置されてある画像をロードするバージョンです。対象の画像のURLをリストに入力しLoadボタンを押すことで動作します。
+
+[Online Demo](https://a-nakanosora.github.io/Image-Sequence-Animation-Preview/images-preview-remote.htm)
+
