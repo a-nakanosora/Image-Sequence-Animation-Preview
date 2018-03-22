@@ -1,0 +1,404 @@
+<html>
+<head>
+<title>Image Sequence Animation Preview (Remote)</title>
+<!-- v0.6 -->
+<style>
+body {
+    background: #ffffff;
+  /*background: #000000;*/
+}
+.row {
+    margin: 10px 0px;
+}
+.row2 {
+    margin: 2px 0px;
+}
+.oneline-text {
+    width:40px;
+}
+.preview {
+    /*image-rendering: pixelated;*/
+}
+.preview-container {
+    /*pointer-events: none;*/
+    padding: 2px;
+}
+#imgurls {
+    width: 800px;
+    height: 10em;
+    white-space: nowrap;
+}
+</style>
+</head>
+
+<body>
+<div>
+    <div class="row">
+        <div id="imgurls-container">
+            img urls: <br>
+            <textarea id="imgurls" onchange="saveUrlsToStorage(event)"></textarea> <br>
+        </div>
+        <button onclick="loadRemoteImages()">load</button> <button onclick="toggleList()">toggle list</button>
+    </div>
+
+    <div class="row">
+        screen size: <span class="size">0x0</span>
+    </div>
+
+    <div class="row">
+        <div class="row2">
+            <button onclick="fpsDec()">-</button>
+            fps:<input type="text" class="fps oneline-text" rows="1">
+            <button onclick="fpsInc()">+</button>
+        </div>
+        <div class="row2">
+            <button onclick="zoomOut()">-</button>
+            zoom:<input type="text" class="zoom oneline-text" rows="1" disabled="true">
+            <button onclick="zoomIn()">+</button>
+            <button onclick="zoomReset()">*</button>
+        </div>
+    </div>
+    <div class="playback row">
+        <button class="exec-start" onclick="startLoop()">start</button>
+        <button class="exec-stop"  onclick="stopLoop()">stop</button>
+        frame:<input type="text" class="playback-frame oneline-text" rows="1">
+        / <span class="frame-length">0</span>
+        (start frame: <span class="start-frame"></span>)
+
+        <div class="row2">
+            <button onclick="prevFrame()"> &lt; </button>
+            <button onclick="nextFrame()"> &gt; </button>
+        </div>
+    </div>
+    <div class="status"></div>
+</div>
+<hr>
+<div class="preview-container">
+    <canvas class="preview" width="1" height="1"></canvas>
+</div>
+
+
+<script>
+function main(){
+    elem.size = document.querySelector('.size')
+    elem.fps = document.querySelector('.fps')
+    elem.zoom = document.querySelector('.zoom')
+    elem.frame = document.querySelector('.playback-frame')
+    elem.frameLength = document.querySelector('.frame-length')
+    elem.canvas = document.querySelector('.preview')
+    elem.previewContainer = document.querySelector('.preview-container')
+    elem.status = document.querySelector('.status')
+    elem.startFrame = document.querySelector('.start-frame')
+    elem.imgurls = document.querySelector('#imgurls')
+    elem.imgurlsContainer = document.querySelector('#imgurls-container')
+    for(const n in elem)
+        console.assert(!!elem[n])
+
+    ///
+    elem.fps.value = state.fps.toFixed(1)
+    elem.fps.addEventListener('input', e=>{
+        if(!e.isTrusted)
+            return
+        fpsChange(e.target.value)
+    })
+    elem.zoom.value = state.zoom.toFixed(1)
+    elem.startFrame.innerText = '0'
+    elem.frame.value = '0'
+    elem.frame.addEventListener('input', e=>{
+        if(!e.isTrusted)
+            return
+        frameChange(e.target.value)
+    })
+
+    fromStroage()
+}
+
+const requestAnimationFrame = window.requestAnimationFrame
+
+const elem = {}
+
+const state = {
+    fps: 24,
+    imgs: [],
+    animframeLoop: null,
+    zoom: 1.0,
+    startFrame: 0,
+    currentFrame: 0,
+    resampleTimestamp: true,
+}
+
+const exampleUrls = `https://pbs.twimg.com/profile_images/963456138313379840/2BJQyq5E_bigger.jpg
+https://pbs.twimg.com/profile_images/417652270700830721/ZC3MBsa-_bigger.jpeg
+https://pbs.twimg.com/profile_images/378800000011166255/7b0c8876f78c82e1cfb5c4aa100e32ba_bigger.gif
+https://pbs.twimg.com/profile_images/791849656200208384/jiW_K1Iw_bigger.jpg
+https://pbs.twimg.com/profile_images/770858200979628032/kpOHjCm__bigger.jpg
+https://pbs.twimg.com/profile_images/480684521/yamyam_1088497000_logo34x2_bigger.png
+https://pbs.twimg.com/profile_images/954926317450944512/VF5VSo56_bigger.jpg
+https://pbs.twimg.com/profile_images/822667599339106305/gaQ1tzf0_bigger.jpg
+https://pbs.twimg.com/profile_images/945483161122742273/1eOnEQs__bigger.jpg
+https://pbs.twimg.com/profile_images/564950548315521024/g11aIMz7_bigger.jpeg
+https://pbs.twimg.com/profile_images/873113859938070529/MSJttzsy_bigger.jpg
+https://pbs.twimg.com/profile_images/627964540219568128/K0297etF_bigger.jpg
+https://pbs.twimg.com/profile_images/939011725860380674/jOYNxOXE_bigger.jpg
+https://pbs.twimg.com/profile_images/902845214728916993/SP1cWY5h_bigger.jpg
+https://pbs.twimg.com/profile_images/3327260033/12384ae74ca5476ac480fd38a95e8ec1_bigger.jpeg
+https://pbs.twimg.com/profile_images/542087810799255552/G5-TPo17_bigger.png
+https://pbs.twimg.com/profile_images/3083206626/bd2b7d722b3614bc4efd59190f5ac9b2_bigger.jpeg
+https://pbs.twimg.com/profile_images/875980356641411072/DLe5iqC9_bigger.jpg
+https://pbs.twimg.com/profile_images/2167612201/baLogo_bigger.jpg
+https://pbs.twimg.com/profile_images/834808509376167936/xuv9J-s0_bigger.jpg
+https://pbs.twimg.com/profile_images/451176969380438018/JLPI1Uqu_bigger.jpeg
+https://pbs.twimg.com/profile_images/764454177397366784/mYZ3bN2W_bigger.jpg
+https://pbs.twimg.com/profile_images/881426566823034881/QVbueTT7_bigger.jpg
+https://pbs.twimg.com/profile_images/670988076106125313/UaOT_9-v_bigger.jpg
+https://pbs.twimg.com/profile_images/959341565683539968/YJa_VcLQ_bigger.jpg
+https://pbs.twimg.com/profile_images/875513488763899904/z0nqI4z-_bigger.jpg
+https://pbs.twimg.com/profile_images/567158621453037569/jYnyCf8q_bigger.png
+https://pbs.twimg.com/profile_images/804286423461335040/MA0kAZ-p_bigger.jpg
+https://pbs.twimg.com/profile_images/1317184352/110979___bigger.jpg
+https://pbs.twimg.com/profile_images/1665952560/skull_bigger.png
+https://pbs.twimg.com/profile_images/652401428300853248/AtMopIxa_bigger.png
+https://pbs.twimg.com/profile_images/866486367097733120/yg-MlhO4_bigger.jpg
+https://pbs.twimg.com/profile_images/605953311137595392/P2MepuoF_bigger.jpg
+https://pbs.twimg.com/profile_images/928016585008095232/djc7S8YD_bigger.jpg
+https://pbs.twimg.com/profile_images/875484672104349700/84B6aHKR_normal.jpg
+https://pbs.twimg.com/profile_images/834209404392136705/v4lxJrk__normal.jpg
+https://pbs.twimg.com/profile_images/938673414029524993/3Zqcupn4_normal.jpg`
+
+
+const status = {
+    label(text){ elem.status.textContent = text },
+    size(width, height){ elem.size.textContent = `${width}x${height}` },
+    frameLength(l){ elem.frameLength.textContent = l }
+}
+
+function setImmediate(f){setTimeout(f,1)}
+
+function loadRemoteImages(){
+    stopLoop()
+    revokeImgs()
+    status.label('loading...')
+
+    setImmediate(_=>{
+        const urls = getUrls()
+        const ims = urls.filter(s=> s.match(/[^\/\\]+\.(?:jpe?g|png|gif)$/))
+                        .map(s=>({ url:s
+                                 , name: s.match(/[^\/\\]+\.(?:jpe?g|png|gif)$/)[0]
+                                 }) )
+        const prs = ims.map(({url, name})=>new Promise((ok,ng)=>{
+            const img = new Image()
+            img.crossorigin = 'anonymous'
+            img.onload = _=> ok({name, img})
+            img.onerror = e=> ng({error:e, name, img})
+            img.src = url
+        }))
+        Promise.all(prs)
+            .then(e=>{
+                status.label('')
+                initImageSequence(e)
+            })
+            .catch(e=>{
+                console.log('catch', e.error, e)
+                status.label('error: cannot load: '+e.img.src)
+            })
+    })
+}
+
+function getUrls(){
+    const urls = elem.imgurls.value.trim().split(/\n+/g).map(s=>s.trim())
+    return urls
+}
+
+function toggleList(){
+    const hide = elem.imgurlsContainer.style['display'] !== 'none'
+    elem.imgurlsContainer.style['display'] = hide ? 'none' : ''
+    localStorage.imgurlsDisplay = elem.imgurlsContainer.style['display']
+}
+
+function fromStroage(){
+    elem.imgurlsContainer.style['display'] = localStorage.imgurlsDisplay
+    loadUrlsFromStorage()
+}
+function loadUrlsFromStorage(){
+  elem.imgurls.value = localStorage.urls || exampleUrls
+}
+function saveUrlsToStorage(){
+  localStorage.urls = elem.imgurls.value
+}
+
+function revokeImgs(){
+    for(const img of state.imgs)
+        URL.revokeObjectURL(img.src)
+}
+
+function fpsChange(v){
+    if(v && !isNaN(v))
+        state.fps = Number(v)
+    elem.fps.value = String(v).trim().replace(/\D+/g, '')
+    resetFrame()
+}
+
+function frameChange(v){
+    if(v && !isNaN(v))
+        setStartFrame( Number(v) )
+    elem.frame.value = String(v).trim().replace(/\D+/g, '')
+    resetFrame()
+}
+
+function fpsDec(){
+    state.fps /= Math.sqrt(2)
+    elem.fps.value = state.fps.toFixed(1)
+    resetFrame()
+}
+function fpsInc(){
+    state.fps *= Math.sqrt(2)
+    elem.fps.value = state.fps.toFixed(1)
+    resetFrame()
+}
+function zoomOut(){
+    state.zoom /= Math.sqrt(2)
+    _setZoom()
+}
+function zoomIn(){
+    state.zoom *= Math.sqrt(2)
+    _setZoom()
+}
+function zoomReset(){
+    state.zoom = 1.0
+    _setZoom()
+}
+function _setZoom(){
+    Object.assign(elem.canvas.style, {
+        transform: `scale(${state.zoom})`,
+        'transform-origin': 'left top 0px',
+    })
+    Object.assign(elem.previewContainer.style, {
+        width: `${elem.canvas.width * state.zoom}px`,
+        height: `${elem.canvas.height * state.zoom}px`,
+    })
+    elem.zoom.value = state.zoom.toFixed(1)
+}
+
+function prevFrame(){
+    stopLoop()
+    updateFrame(getCurrentFrame()-1)
+}
+function nextFrame(){
+    stopLoop()
+    updateFrame(getCurrentFrame()+1)
+}
+function resetFrame(){
+    state.resampleTimestamp = true
+}
+function setStartFrame(i){
+    state.startFrame = i
+    elem.startFrame.innerText = i
+}
+function getCurrentFrame(){
+    return state._currentFrame
+}
+function setCurrentFrame(i){
+    state._currentFrame = i
+    elem.frame.value = i
+}
+
+function initImageSequence(e){
+    console.assert(e instanceof Array)
+    console.assert(e.every(obj=>obj.name&&obj.img))
+
+    if(e.length === 0)
+        return
+
+    /*
+    const numberOfImage = path=>{
+        const m = path.match(/(\d+)\.[^\.]+$/)
+        return m ? Number(m[1]) : -1
+    }
+    e.sort((a,b)=> numberOfImage(a.name)-numberOfImage(b.name))
+    */
+    state.imgs = e.map(obj=>obj.img)
+    const im = state.imgs[0]
+    state.canvasSize = {width:im.naturalWidth, height: im.naturalHeight}
+    status.size(state.canvasSize.width, state.canvasSize.height)
+    status.frameLength(state.imgs.length)
+    setStartFrame(0)
+    setCurrentFrame(0)
+    zoomReset()
+    startLoop()
+}
+
+function fixedFrameIndex(idx){
+    const l = state.imgs.length
+    return (idx+l) % l
+}
+function renderImage(img, canvas){
+    const ctx = canvas.getContext('2d')
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    ctx.drawImage(img, 0, 0)
+}
+function updateFrame(frame){
+    frame = fixedFrameIndex(frame)
+    const cnv = elem.canvas
+    renderImage(state.imgs[frame], cnv)
+    setCurrentFrame(frame)
+}
+
+function stopLoop(){
+    if(state.animframeLoop)
+        state.animframeLoop.stop()
+    state.animframeLoop = null
+    elem.frame.disabled = false
+}
+
+function startLoop(){
+    stopLoop()
+    resetFrame()
+    elem.frame.disabled = true
+    const cnv = elem.canvas
+    cnv.width = state.canvasSize.width
+    cnv.height = state.canvasSize.height
+    const ctx = cnv.getContext('2d')
+    state.animframeLoop = new AnimationFrameLoop()
+    let t0 = -1
+    let baseFrame = state.startFrame
+    state.animframeLoop.start(timestamp=>{
+        const cf = getCurrentFrame()
+        if(state.resampleTimestamp) {
+            baseFrame = t0<0 ? state.startFrame : cf
+            t0 = timestamp
+            state.resampleTimestamp = false
+        }
+        const interval = 1000/Math.round(state.fps)
+        const idx = fixedFrameIndex( (((timestamp - t0)/interval)<<0) + baseFrame )
+        if(idx !== cf)
+            updateFrame(idx)
+    })
+}
+
+class AnimationFrameLoop {
+    constructor(){
+        this.running = false
+    }
+    start(f){
+        if(this.running)
+            return
+        this.running = true
+
+        const loop = timestamp=>{
+            if(!this.running)
+                return
+            f(timestamp)
+            requestAnimationFrame(loop)
+        }
+        requestAnimationFrame(loop)
+    }
+    stop(){
+        this.running = false
+    }
+}
+
+main()
+</script>
+
+</body>
+</html>
