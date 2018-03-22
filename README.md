@@ -38,6 +38,8 @@ v0.4から連番画像を含むディレクトリのドラッグ＆ドロップ�
 :exclamation: 今のところかなりメモリ効率が悪いため、巨大な画像を数百枚開くとメモリ使用量をかなり圧迫する可能性があります。
 
 
+<br><br><br>
+
 ---
 
 # Image Sequence Animation Preview (Remote)
